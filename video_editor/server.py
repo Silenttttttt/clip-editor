@@ -61,7 +61,14 @@ class Handler(BaseHTTPRequestHandler):
         print(f"  [{self.address_string()}] {fmt % args}")
 
     def do_GET(self):
-        if self.path in ("/", "/index.html"):
+        if self.path == "/health":
+            # Not present in the original script - added because any real
+            # orchestrator (k8s liveness/readiness, a load balancer) needs
+            # a cheap, dependency-free endpoint to poll. Deliberately does
+            # not touch ffmpeg/disk/the upload backend - it only proves
+            # this process is alive and accepting connections.
+            self._json(200, {"status": "ok"})
+        elif self.path in ("/", "/index.html"):
             self._raw(200, "text/html; charset=utf-8", PAGE)
         elif self.path.startswith("/preview/"):
             self._serve_video(self.path[9:])
