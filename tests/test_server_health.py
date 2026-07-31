@@ -15,8 +15,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from video_editor.backends import VpsBackend
-from video_editor.server import Handler, Server
+from clip_editor.backends import VpsBackend
+from clip_editor.server import Handler, Server
 
 
 class HealthEndpointTest(unittest.TestCase):
@@ -47,7 +47,7 @@ class HealthEndpointTest(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             self.assertIn("text/html", resp.headers.get("Content-Type", ""))
             body = resp.read()
-            self.assertIn(b"Video Editor", body)
+            self.assertIn(b"Clip Editor", body)
 
     def test_unknown_route_is_404(self):
         req = urllib.request.Request(f"http://127.0.0.1:{self.port}/nope")

@@ -1,4 +1,4 @@
-"""CLI entry point: `python -m video_editor [flags]`.
+"""CLI entry point: `python -m clip_editor [flags]`.
 
 Preserves the original script's defaults exactly - `--upload-backend`
 defaults to `vps`, which still requires `--server`/`--api-key` (or the
@@ -53,7 +53,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--local-storage-url", default=os.environ.get("LOCAL_STORAGE_URL", ""), metavar="URL",
                          help="[local-storage backend] Base URL of the local-storage CDN instance.")
     parser.add_argument("--local-storage-bucket",
-                         default=os.environ.get("LOCAL_STORAGE_BUCKET", "video-editor"), metavar="BUCKET",
+                         default=os.environ.get("LOCAL_STORAGE_BUCKET", "clip-editor"), metavar="BUCKET",
                          help="[local-storage backend] Bucket to upload processed videos into.")
     parser.add_argument("--local-storage-write-token",
                          default=os.environ.get("LOCAL_STORAGE_WRITE_TOKEN", ""), metavar="TOKEN",
@@ -61,7 +61,7 @@ def _build_parser() -> argparse.ArgumentParser:
                               "target instance is write-protected while scaled to zero.")
     parser.add_argument("--port", type=int, default=int(os.environ.get("UPLOAD_PORT", "7777")))
     parser.add_argument("--projects-dir",
-                         default=os.environ.get("PROJECTS_DIR", str(Path.home() / ".video-editor-projects")),
+                         default=os.environ.get("PROJECTS_DIR", str(Path.home() / ".clip-editor-projects")),
                          metavar="DIR")
     return parser
 
@@ -96,7 +96,7 @@ def main() -> None:
     (projects_dir / "files").mkdir(exist_ok=True)
     Handler.projects_dir = projects_dir
 
-    work_dir = Path(tempfile.mkdtemp(prefix="video-editor-"))
+    work_dir = Path(tempfile.mkdtemp(prefix="clip-editor-"))
     atexit.register(lambda: shutil.rmtree(work_dir, ignore_errors=True))
     Handler.work_dir = work_dir
 

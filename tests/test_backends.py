@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from video_editor.backends import BackendError, LocalStorageBackend, VpsBackend, build_backend
+from clip_editor.backends import BackendError, LocalStorageBackend, VpsBackend, build_backend
 
 
 class _MockVpsHandler(BaseHTTPRequestHandler):
@@ -41,7 +41,7 @@ class _MockLocalStorageHandler(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        assert self.path == "/buckets/video-editor/files"
+        assert self.path == "/buckets/clip-editor/files"
         assert self.headers.get("X-Activator-Write-Token") == "secret-token"
         assert self.headers.get("Content-Disposition") == 'attachment; filename="clip.mp4"'
         length = int(self.headers.get("Content-Length", 0))
@@ -52,7 +52,7 @@ class _MockLocalStorageHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps({
             "id": "11111111-1111-1111-1111-111111111111",
-            "bucket": "video-editor",
+            "bucket": "clip-editor",
             "key": "clip.mp4",
             "filename": "clip.mp4",
             "file_size": len(b"fake-video-bytes"),
@@ -99,9 +99,9 @@ class LocalStorageBackendTest(unittest.TestCase):
     def test_push_builds_download_url_from_key(self):
         srv, _t, base = _serve(_MockLocalStorageHandler)
         try:
-            backend = LocalStorageBackend(base, bucket="video-editor", write_token="secret-token")
+            backend = LocalStorageBackend(base, bucket="clip-editor", write_token="secret-token")
             result = backend.push(b"fake-video-bytes", "clip.mp4", "video/mp4")
-            self.assertEqual(result["url"], f"{base}/buckets/video-editor/files/clip.mp4")
+            self.assertEqual(result["url"], f"{base}/buckets/clip-editor/files/clip.mp4")
             self.assertEqual(result["key"], "clip.mp4")
         finally:
             srv.shutdown()

@@ -9,7 +9,7 @@ PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Video Editor</title>
+<title>Clip Editor</title>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -219,7 +219,7 @@ select.s-sel { background:#0d0d0d; border:1px solid #222; border-radius:4px; col
 
 <!-- Top bar -->
 <div id="top-bar">
-  <span id="top-title">Video Editor</span>
+  <span id="top-title">Clip Editor</span>
   <div id="proj-name-wrap">
     <input type="text" id="proj-name" placeholder="Untitled project" maxlength="80">
     <span id="proj-dirty"></span>

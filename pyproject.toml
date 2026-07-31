@@ -1,5 +1,5 @@
 [project]
-name = "video-editor"
+name = "clip-editor"
 version = "1.0.0"
 description = "A browser-based, canvas-timeline non-linear video editor with an FFmpeg backend and a pluggable upload destination - pure Python stdlib, no pip dependencies."
 readme = "README.md"
@@ -7,11 +7,11 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 
 [project.scripts]
-video-editor = "video_editor.__main__:main"
+clip-editor = "clip_editor.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["video_editor*"]
+include = ["clip_editor*"]

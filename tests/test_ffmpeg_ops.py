@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from video_editor.ffmpeg_ops import build_cmd
+from clip_editor.ffmpeg_ops import build_cmd
 
 
 def _source(path="clip.mp4", duration=10.0, width=1280, height=720, has_audio=True, segments=None):

@@ -1,4 +1,4 @@
-# video-editor
+# clip-editor
 
 A browser-based, canvas-timeline non-linear video editor with a real FFmpeg
 backend - media bin, timeline with select/razor/delete tools, a Range-request
@@ -19,25 +19,25 @@ small pluggable **upload backend** abstraction:
 
 ```bash
 pip install -e .            # optional - or just run the module directly
-python3 -m video_editor --upload-backend vps --server https://example.com --api-key KEY
+python3 -m clip_editor --upload-backend vps --server https://example.com --api-key KEY
 # open http://localhost:7777
 ```
 
 Or with Docker:
 
 ```bash
-docker build -t video-editor .
+docker build -t clip-editor .
 docker run -p 7777:7777 \
   -e UPLOAD_BACKEND=vps -e UPLOAD_SERVER_URL=https://example.com -e UPLOAD_API_KEY=KEY \
-  -v video-editor-projects:/data/projects \
-  video-editor
+  -v clip-editor-projects:/data/projects \
+  clip-editor
 ```
 
 ## Project layout
 
 ```
-video_editor/
-  __main__.py    CLI entry point (python -m video_editor)
+clip_editor/
+  __main__.py    CLI entry point (python -m clip_editor)
   server.py      HTTP handler + routing (upload, process, preview, projects)
   ffmpeg_ops.py  ffprobe/ffmpeg wrappers: media probing + the export pipeline
   projects.py    JSON project persistence + copied-media store
@@ -56,10 +56,10 @@ Every setting is a CLI flag or an equivalent env var (flags win if both are set)
 | `--server` | `UPLOAD_SERVER_URL` | - | `vps` backend: base URL of the receiving server |
 | `--api-key` | `UPLOAD_API_KEY` | - | `vps` backend: `X-Api-Key` header value |
 | `--local-storage-url` | `LOCAL_STORAGE_URL` | - | `local-storage` backend: base URL of the CDN instance |
-| `--local-storage-bucket` | `LOCAL_STORAGE_BUCKET` | `video-editor` | `local-storage` backend: bucket to upload into |
+| `--local-storage-bucket` | `LOCAL_STORAGE_BUCKET` | `clip-editor` | `local-storage` backend: bucket to upload into |
 | `--local-storage-write-token` | `LOCAL_STORAGE_WRITE_TOKEN` | - | `local-storage` backend: `X-Activator-Write-Token`, only needed if the target instance is write-protected while scaled to zero |
 | `--port` | `UPLOAD_PORT` | `7777` | HTTP listen port |
-| `--projects-dir` | `PROJECTS_DIR` | `~/.video-editor-projects` | Where project JSON + copied media live - should be a persistent volume in any real deployment |
+| `--projects-dir` | `PROJECTS_DIR` | `~/.clip-editor-projects` | Where project JSON + copied media live - should be a persistent volume in any real deployment |
 
 `--server`/`--api-key` are required (hard error) when `--upload-backend vps`
 (the default) - this matches the original script's behavior exactly, so an

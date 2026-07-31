@@ -7,7 +7,7 @@ RUN apt-get update \
 WORKDIR /app
 
 # No pip dependencies - stdlib only. Copying the source is the only "install" step.
-COPY video_editor/ ./video_editor/
+COPY clip_editor/ ./clip_editor/
 
 # Projects (JSON + copied media) are meant to be a mounted persistent volume
 # in any real deployment - this default just gives a sane fallback for a
@@ -25,4 +25,4 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 7777
 
-ENTRYPOINT ["python3", "-m", "video_editor"]
+ENTRYPOINT ["python3", "-m", "clip_editor"]

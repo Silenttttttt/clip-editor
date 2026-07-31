@@ -54,7 +54,7 @@ def _parse_multipart(body: bytes, content_type: str) -> tuple[bytes, str, str]:
 class Handler(BaseHTTPRequestHandler):
     # Wired once by __main__.py before the server starts serving.
     backend: UploadBackend | None = None
-    projects_dir: Path = Path.home() / ".video-editor-projects"
+    projects_dir: Path = Path.home() / ".clip-editor-projects"
     work_dir: Path = Path("/tmp")
 
     def log_message(self, fmt, *args):

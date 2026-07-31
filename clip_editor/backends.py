@@ -138,7 +138,7 @@ class LocalStorageBackend:
     activator's own token - pass it as `write_token`.
     """
 
-    def __init__(self, base_url: str, bucket: str = "video-editor", write_token: str | None = None):
+    def __init__(self, base_url: str, bucket: str = "clip-editor", write_token: str | None = None):
         if not base_url:
             raise ValueError("LocalStorageBackend requires a base URL (LOCAL_STORAGE_URL)")
         self.base_url = base_url.rstrip("/")
@@ -166,7 +166,7 @@ def build_backend(
     server_url: str = "",
     api_key: str = "",
     local_storage_url: str = "",
-    local_storage_bucket: str = "video-editor",
+    local_storage_bucket: str = "clip-editor",
     local_storage_write_token: str = "",
 ) -> UploadBackend:
     if kind == "vps":
