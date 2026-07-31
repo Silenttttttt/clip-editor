@@ -200,6 +200,16 @@ class Handler(BaseHTTPRequestHandler):
             if json.loads(snap).get("status") in ("done", "error"):
                 break
             time.sleep(0.2)
+        # No Content-Length/chunked framing on this streamed response - the
+        # client's only way to know the body has ended is the connection
+        # closing. A request sent as "HTTP/1.1" (which most clients,
+        # including curl, do unconditionally) makes the stdlib default to
+        # keep-alive, so without this the socket stays open after this
+        # handler returns and the client hangs waiting for bytes that will
+        # never come (confirmed live: curl hung indefinitely on an
+        # already-"done" job, even hitting the pod directly with no proxy
+        # in between).
+        self.close_connection = True
 
     def _upload_temp(self, body):
         try:
