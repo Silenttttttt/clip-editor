@@ -15,6 +15,14 @@ COPY video_editor/ ./video_editor/
 ENV PROJECTS_DIR=/data/projects
 RUN mkdir -p /data/projects
 
+# Unbuffered stdout - matches the original script's own systemd unit
+# (`python3 -u ...`). Without this, print()'d job/request logs sit in
+# Python's block buffer (stdout isn't a TTY in a container) and never
+# reach `docker logs`/`kubectl logs` until the buffer fills or the
+# process exits - confirmed live: logs were empty during a real, working
+# request until this was added.
+ENV PYTHONUNBUFFERED=1
+
 EXPOSE 7777
 
 ENTRYPOINT ["python3", "-m", "video_editor"]
