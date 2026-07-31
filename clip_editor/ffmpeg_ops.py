@@ -18,16 +18,31 @@ from . import state
 
 
 def probe(path: Path) -> dict:
+    # `-v error` (not `-v quiet`) - quiet suppresses ffprobe's own diagnostic
+    # output entirely, so a corrupt/invalid upload used to fail with a
+    # completely blank error message (confirmed live: uploading a truncated
+    # mp4 or random bytes returned `{"error": ""}` with zero indication of
+    # what was wrong). `-v error` still prints nothing on success but gives
+    # the real reason ("moov atom not found", "Invalid data found...", etc.)
+    # on failure, which is what actually needs to reach the user/caller.
     r = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json",
+        ["ffprobe", "-v", "error", "-print_format", "json",
          "-show_streams", "-show_format", str(path)],
         capture_output=True, text=True, timeout=30,
     )
     if r.returncode != 0:
-        raise RuntimeError(r.stderr[:400])
+        raise RuntimeError(r.stderr.strip()[:400] or f"ffprobe exit {r.returncode}")
     d = json.loads(r.stdout)
     streams = d.get("streams", [])
     v = next((s for s in streams if s.get("codec_type") == "video"), {})
+    if not v:
+        # A file can be a perfectly valid *media* file to ffprobe (e.g. an
+        # audio-only mp3/m4a) yet be useless to this editor, which assumes
+        # every clip has a video stream to display/trim/concat. Without
+        # this check the upload silently "succeeds" with width=0/height=0,
+        # and the failure only surfaces later, confusingly, inside ffmpeg
+        # during export.
+        raise RuntimeError("No video stream found in this file")
     return {
         "duration": float(d.get("format", {}).get("duration", 0)),
         "width": int(v.get("width", 0)),
@@ -47,6 +62,17 @@ def build_cmd(sources: list, dst: Path, settings: dict) -> list[str]:
     volume = float(settings.get("volume", 100))
     muted = bool(settings.get("muted", False))
     preset = settings.get("preset", "veryfast")
+
+    # Confirmed live: a negative target size silently passed straight
+    # through into the bitrate math, got clamped to a degenerate 50 kbps
+    # floor, and produced a "successful" (but garbage) export with no
+    # error at all. Same idea for negative volume. Fail loudly instead -
+    # this raises inside run_job's try/except, which already reports it
+    # as a normal job "error" over SSE, so the UI path doesn't change.
+    if target_mb is not None and target_mb <= 0:
+        raise ValueError(f"Target size must be a positive number of MB, got {target_mb}")
+    if volume < 0:
+        raise ValueError(f"Volume cannot be negative, got {volume}")
 
     any_audio = any(s["meta"].get("has_audio", True) for s in sources)
     if not any_audio:
@@ -147,7 +173,25 @@ def run_job(job_id: str, sources: list, dst: Path, settings: dict) -> None:
             for src in sources
         )
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        threading.Thread(target=lambda: [_ for _ in proc.stderr], daemon=True).start()
+        # Previously this thread drained proc.stderr and threw every line
+        # away (`[_ for _ in proc.stderr]` - a no-op besides preventing the
+        # pipe from filling up and blocking ffmpeg). That meant a failed
+        # export only ever reported "ffmpeg exit N" with zero information
+        # about *why* - confirmed live by feeding ffmpeg an out-of-order
+        # trim (start > end): the job correctly went to "error" status
+        # (no hang), but the message was useless for figuring out what was
+        # wrong. Now the last ~4000 bytes of stderr are kept so a real
+        # ffmpeg diagnostic (bad filter graph, missing codec, unsupported
+        # input, etc.) reaches the JOBS error field and the UI.
+        stderr_tail = bytearray()
+
+        def _drain_stderr():
+            for line in proc.stderr:
+                stderr_tail.extend(line)
+                del stderr_tail[:-4000]
+
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
         for raw in proc.stdout:
             k, _, v = raw.decode(errors="replace").strip().partition("=")
             if k == "out_time_ms" and v.lstrip("-").isdigit():
@@ -155,8 +199,11 @@ def run_job(job_id: str, sources: list, dst: Path, settings: dict) -> None:
                 with state.LOCK:
                     state.JOBS[job_id]["progress"] = pct
         proc.wait()
+        stderr_thread.join(timeout=2)
         if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg exit {proc.returncode}")
+            tail = stderr_tail.decode(errors="replace").strip().splitlines()
+            detail = " | ".join(tail[-6:]) if tail else None
+            raise RuntimeError(f"ffmpeg exit {proc.returncode}" + (f": {detail}" if detail else ""))
         out_id = uuid.uuid4().hex
         sz = dst.stat().st_size
         with state.LOCK:

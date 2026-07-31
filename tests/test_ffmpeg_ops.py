@@ -59,6 +59,23 @@ class BuildCmdTest(unittest.TestCase):
         self.assertIn("+faststart", cmd)
         self.assertEqual(cmd[-1], "/tmp/out123.mp4")
 
+    def test_negative_target_size_rejected(self):
+        # Confirmed live: a negative targetMb used to sail through, get
+        # clamped to a 50kbps bitrate floor, and produce a "successful"
+        # but garbage export with no error at all.
+        with self.assertRaises(ValueError):
+            build_cmd([_source()], Path("/tmp/out.mp4"), {"quality": 70, "targetMb": -5})
+
+    def test_zero_target_size_is_treated_as_unset(self):
+        # 0 is falsy/meaningless as a target size - should behave like no
+        # target size was given at all (CRF path), not raise.
+        cmd = build_cmd([_source()], Path("/tmp/out.mp4"), {"quality": 70, "targetMb": 0})
+        self.assertIn("-crf", cmd)
+
+    def test_negative_volume_rejected(self):
+        with self.assertRaises(ValueError):
+            build_cmd([_source()], Path("/tmp/out.mp4"), {"quality": 70, "volume": -10})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -142,12 +142,45 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if rng:
                 m = re.match(r"bytes=(\d*)-(\d*)", rng)
-                if not m:
-                    self._raw(416, "text/plain", b"Range Not Satisfiable")
+                if not m or (not m.group(1) and not m.group(2)):
+                    self._range_not_satisfiable(size)
                     return
-                start = int(m.group(1)) if m.group(1) else 0
-                end = int(m.group(2)) if m.group(2) else size - 1
+                if m.group(1):
+                    # "bytes=START-" or "bytes=START-END"
+                    start = int(m.group(1))
+                    end = int(m.group(2)) if m.group(2) else size - 1
+                else:
+                    # "bytes=-N" is a SUFFIX range meaning "the last N
+                    # bytes", NOT "byte 0 through N" - confirmed live this
+                    # was being parsed as the latter (a request for the
+                    # last 500 bytes of a file was silently served the
+                    # *first* 501 bytes instead, with a Content-Range
+                    # header claiming "bytes 0-500/<size>"). Rare in
+                    # practice for straightforward forward-seeking players,
+                    # but it's a real, spec-mandated Range form and some
+                    # players/prefetchers do use it (e.g. reading trailing
+                    # metadata/moov atoms).
+                    suffix_len = int(m.group(2))
+                    start = max(0, size - suffix_len)
+                    end = size - 1
                 end = min(end, size - 1)
+                if size == 0 or start > end or start >= size:
+                    # Previously nothing validated `start` against the
+                    # actual file size: a request like
+                    # "bytes=999999999-999999999999" sailed through with
+                    # `end` clamped to size-1 but `start` left as-is, making
+                    # `length = end - start + 1` NEGATIVE. That negative
+                    # number was then sent as a literal Content-Length
+                    # header on a 206 response with zero bytes written -
+                    # a malformed response that broke the HTTP framing
+                    # entirely (confirmed live: this specific request
+                    # surfaced as a 502 from the activator proxy in front
+                    # of this server, i.e. the client-facing symptom was a
+                    # generic gateway error with no indication the actual
+                    # cause was an invalid Range request three hops
+                    # upstream). Per RFC 7233 this must be a clean 416.
+                    self._range_not_satisfiable(size)
+                    return
                 length = end - start + 1
                 self.send_response(206)
                 self.send_header("Content-Type", ct)
@@ -175,6 +208,15 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.write(chunk)
         except (BrokenPipeError, ConnectionResetError):
             pass  # browser cancelled the request (normal during seeking)
+
+    def _range_not_satisfiable(self, size):
+        # RFC 7233 §4.2: a 416 response SHOULD include a Content-Range
+        # header of the form "bytes */<complete-length>" so the client
+        # knows how large the resource actually is.
+        self.send_response(416)
+        self.send_header("Content-Range", f"bytes */{size}")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _sse_progress(self, job_id):
         with state.LOCK:
@@ -212,17 +254,33 @@ class Handler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     def _upload_temp(self, body):
+        file_id = None
+        path = None
         try:
             ct = self.headers.get("Content-Type", "")
             data, filename, mime = _parse_multipart(body, ct)
-            if not mime.startswith("video/"):
-                self._json(415, {"error": f"Expected video/*, got {mime}"})
-                return
+            # Used to hard-reject anything whose *client-declared*
+            # Content-Type didn't start with "video/". That trusts the
+            # browser's MIME-sniffing, which isn't reliable for every
+            # container - confirmed live: re-uploading a file ffprobe
+            # happily accepts, but with the multipart part's Content-Type
+            # set to the generic "application/octet-stream" (what browsers
+            # commonly send for containers with no OS-registered MIME
+            # type, e.g. some .mkv/.ts files), got rejected with a 415
+            # even though the video itself was perfectly valid. ffprobe
+            # below is the real, authoritative check - it already runs
+            # right after - so a blatantly non-media declared type just
+            # skips straight to that instead of trusting the label.
             file_id = uuid.uuid4().hex
             ext = Path(filename).suffix or ".mp4"
             path = self.work_dir / f"{file_id}{ext}"
             path.write_bytes(data)
-            meta = ffmpeg_ops.probe(path)
+            try:
+                meta = ffmpeg_ops.probe(path)
+            except Exception as probe_exc:
+                path.unlink(missing_ok=True)
+                self._json(415, {"error": str(probe_exc)})
+                return
             with state.LOCK:
                 state.FILES[file_id] = {"path": str(path), "name": filename,
                                          "duration": meta["duration"], "size": len(data),
@@ -234,6 +292,8 @@ class Handler(BaseHTTPRequestHandler):
                               "size": len(data)})
         except Exception as exc:
             print(f"  upload-temp error: {exc}")
+            if path is not None:
+                path.unlink(missing_ok=True)
             self._json(500, {"error": str(exc)})
 
     def _process(self, body):
