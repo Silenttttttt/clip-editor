@@ -120,6 +120,30 @@ class LocalStorageBackendTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             LocalStorageBackend("")
 
+    def test_public_base_url_used_for_returned_link_only(self):
+        srv, _t, base = _serve(_MockLocalStorageHandler)
+        try:
+            backend = LocalStorageBackend(
+                base, bucket="clip-editor", write_token="secret-token",
+                public_base_url="https://example.com/api/home-cdn",
+            )
+            result = backend.push(b"fake-video-bytes", "clip.mp4", "video/mp4")
+            # Returned URL uses the public base...
+            self.assertEqual(result["url"], "https://example.com/api/home-cdn/buckets/clip-editor/files/clip.mp4")
+            # ...but the upload itself still went to the real base_url.
+            self.assertEqual(backend.base_url, base)
+        finally:
+            srv.shutdown()
+
+    def test_public_base_url_defaults_to_base_url(self):
+        srv, _t, base = _serve(_MockLocalStorageHandler)
+        try:
+            backend = LocalStorageBackend(base, bucket="clip-editor", write_token="secret-token")
+            result = backend.push(b"fake-video-bytes", "clip.mp4", "video/mp4")
+            self.assertEqual(result["url"], f"{base}/buckets/clip-editor/files/clip.mp4")
+        finally:
+            srv.shutdown()
+
 
 class BuildBackendTest(unittest.TestCase):
     def test_unknown_kind_rejected(self):

@@ -59,6 +59,12 @@ def _build_parser() -> argparse.ArgumentParser:
                          default=os.environ.get("LOCAL_STORAGE_WRITE_TOKEN", ""), metavar="TOKEN",
                          help="[local-storage backend] X-Activator-Write-Token, required only if the "
                               "target instance is write-protected while scaled to zero.")
+    parser.add_argument("--local-storage-public-url",
+                         default=os.environ.get("LOCAL_STORAGE_PUBLIC_URL", ""), metavar="URL",
+                         help="[local-storage backend] Base URL to build the RETURNED link from "
+                              "(uploads still go to --local-storage-url) - e.g. a reverse-proxy route "
+                              "on a public host that forwards to the same bucket/key path. Leave unset "
+                              "to return a direct --local-storage-url link.")
     parser.add_argument("--port", type=int, default=int(os.environ.get("UPLOAD_PORT", "7777")))
     parser.add_argument("--projects-dir",
                          default=os.environ.get("PROJECTS_DIR", str(Path.home() / ".clip-editor-projects")),
@@ -89,6 +95,7 @@ def main() -> None:
         local_storage_url=args.local_storage_url,
         local_storage_bucket=args.local_storage_bucket,
         local_storage_write_token=args.local_storage_write_token,
+        local_storage_public_url=args.local_storage_public_url,
     )
 
     projects_dir = Path(args.projects_dir).expanduser().resolve()

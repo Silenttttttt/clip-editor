@@ -58,6 +58,7 @@ Every setting is a CLI flag or an equivalent env var (flags win if both are set)
 | `--local-storage-url` | `LOCAL_STORAGE_URL` | - | `local-storage` backend: base URL of the CDN instance |
 | `--local-storage-bucket` | `LOCAL_STORAGE_BUCKET` | `clip-editor` | `local-storage` backend: bucket to upload into |
 | `--local-storage-write-token` | `LOCAL_STORAGE_WRITE_TOKEN` | - | `local-storage` backend: `X-Activator-Write-Token`, only needed if the target instance is write-protected while scaled to zero |
+| `--local-storage-public-url` | `LOCAL_STORAGE_PUBLIC_URL` | - | `local-storage` backend: base URL to build the *returned* link from (uploads still go to `--local-storage-url`) - see below |
 | `--port` | `UPLOAD_PORT` | `7777` | HTTP listen port |
 | `--projects-dir` | `PROJECTS_DIR` | `~/.clip-editor-projects` | Where project JSON + copied media live - should be a persistent volume in any real deployment |
 
@@ -96,22 +97,22 @@ write-protected (mutating requests need a shared secret while it's cold),
 set `--local-storage-write-token`/`LOCAL_STORAGE_WRITE_TOKEN` to that token.
 Reads (playback, listing) never need it.
 
-#### Known, honest limitation
+#### Getting a public link: `LOCAL_STORAGE_PUBLIC_URL`
 
-`LocalStorageBackend`'s returned URL is whatever `LOCAL_STORAGE_URL` is
-reachable at (e.g. an internal Traefik ingress hostname, or wherever else
-that instance is actually exposed) - it is **not** rewritten onto any other
-domain. If some other system needs videos processed here to appear under
-**its own** public domain, there are exactly two real ways to get there, and
-this repo intentionally implements **neither**:
+By default, `LocalStorageBackend`'s returned URL is whatever
+`LOCAL_STORAGE_URL` is reachable at (e.g. an internal Traefik ingress
+hostname) - not rewritten onto any other domain. Uploads/downloads by this
+tool always go to `LOCAL_STORAGE_URL` regardless.
 
-1. Teach that other system's backend to accept a URL reference (fetch the
-   bytes itself) instead of requiring a raw upload.
-2. Build a reverse-proxy / route-registration layer in front of
-   local-storage that publishes it under the target domain.
-
-Anything short of one of those two is not a real integration - don't assume
-one exists just because both services happen to live in the same cluster.
+If a public host already has (or you add) a reverse-proxy route that
+forwards straight through to the same path shape local-storage itself
+uses (`buckets/{bucket}/files/{key}`), set `LOCAL_STORAGE_PUBLIC_URL` to
+that route's base and the *returned* link will use it instead - e.g.
+`LOCAL_STORAGE_PUBLIC_URL=https://example.com/api/cdn-proxy` turns the
+returned link into `https://example.com/api/cdn-proxy/buckets/{bucket}/files/{key}`,
+while the upload itself still goes straight to `LOCAL_STORAGE_URL`. This
+repo doesn't build that reverse-proxy route for you - it just knows how
+to use one if it exists.
 
 ## Tests
 

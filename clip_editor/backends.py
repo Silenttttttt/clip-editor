@@ -18,23 +18,15 @@ Two real implementations ship here:
   S3-like file store. Useful for a homelab deployment that has no VPS to
   push to.
 
-IMPORTANT, HONEST LIMITATION - read before using local-storage in
-production: the URL LocalStorageBackend returns is a direct URL to
-wherever local-storage itself is reachable from (its configured
-`base_url`) - it is NOT rewritten onto any other public domain. If you
-need videos processed by this tool to appear under a specific public
-domain (e.g. because some other system already expects /videos/xyz.mp4
-under its own domain), there are exactly two real ways to get there, and
-neither is implemented by this repo:
-
-  1. Change the receiving backend so it can accept a URL reference
-     instead of raw file bytes, and have it fetch/relay from local-storage
-     itself.
-  2. Build a reverse-proxy/route-registration layer in front of
-     local-storage that publishes it under the target domain.
-
-Do not assume LocalStorageBackend's URL is publicly routable under any
-domain other than wherever `LOCAL_STORAGE_URL` itself already resolves.
+By default, the URL LocalStorageBackend returns is a direct URL to
+wherever local-storage itself is reachable from (`LOCAL_STORAGE_URL`) -
+not publicly routable under any other domain. If some other system
+already has (or can add) a reverse-proxy route that forwards straight
+through to local-storage's own path shape (`buckets/{bucket}/files/{key}`)
+under a public host, set `LOCAL_STORAGE_PUBLIC_URL` to that host's base
+path (e.g. `https://example.com/api/home-cdn`) - uploads still go to
+`LOCAL_STORAGE_URL` as always, only the returned link changes. Leave it
+unset to keep the original, non-public-facing behavior.
 """
 
 from __future__ import annotations
@@ -138,12 +130,26 @@ class LocalStorageBackend:
     activator's own token - pass it as `write_token`.
     """
 
-    def __init__(self, base_url: str, bucket: str = "clip-editor", write_token: str | None = None):
+    def __init__(
+        self,
+        base_url: str,
+        bucket: str = "clip-editor",
+        write_token: str | None = None,
+        public_base_url: str | None = None,
+    ):
         if not base_url:
             raise ValueError("LocalStorageBackend requires a base URL (LOCAL_STORAGE_URL)")
         self.base_url = base_url.rstrip("/")
         self.bucket = bucket
         self.write_token = write_token or None
+        # Uploads always go to `base_url` (the real, internal/authenticated
+        # address). The returned "url" is built from `public_base_url`
+        # instead when set - e.g. a reverse-proxy route on a public host
+        # that forwards straight through to the same bucket/key path
+        # (matching local-storage's own GET shape: buckets/{bucket}/files/{key}).
+        # Defaults to `base_url` when not set, preserving the original
+        # (non-publicly-routable) behavior.
+        self.public_base_url = (public_base_url or base_url).rstrip("/")
 
     def push(self, video_bytes: bytes, filename: str, content_type: str) -> dict:
         target = f"{self.base_url}/buckets/{self.bucket}/files"
@@ -156,7 +162,7 @@ class LocalStorageBackend:
         req = urllib.request.Request(target, data=video_bytes, headers=headers, method="POST")
         _status, info = _http_post(req)
         key = info.get("key") or filename
-        info["url"] = f"{self.base_url}/buckets/{self.bucket}/files/{key}"
+        info["url"] = f"{self.public_base_url}/buckets/{self.bucket}/files/{key}"
         return info
 
 
@@ -168,9 +174,15 @@ def build_backend(
     local_storage_url: str = "",
     local_storage_bucket: str = "clip-editor",
     local_storage_write_token: str = "",
+    local_storage_public_url: str = "",
 ) -> UploadBackend:
     if kind == "vps":
         return VpsBackend(server_url, api_key)
     if kind == "local-storage":
-        return LocalStorageBackend(local_storage_url, local_storage_bucket, local_storage_write_token)
+        return LocalStorageBackend(
+            local_storage_url,
+            local_storage_bucket,
+            local_storage_write_token,
+            public_base_url=local_storage_public_url or None,
+        )
     raise ValueError(f"Unknown upload backend: {kind!r} (expected 'vps' or 'local-storage')")
