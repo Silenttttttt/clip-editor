@@ -152,6 +152,7 @@ select.s-sel { background:#0d0d0d; border:1px solid #222; border-radius:4px; col
 .btn-exp:hover { background:#254d80; }
 .btn-exp-up { padding:7px 16px; background:#1c3a22; color:#7effa0; border:none; border-radius:6px; font-size:.82rem; font-weight:500; cursor:pointer; }
 .btn-exp-up:hover { background:#255030; }
+.btn-exp:disabled, .btn-exp-up:disabled { opacity:.4; cursor:not-allowed; }
 
 /* ── Overlays ────────────────────────────────────────────────────────────── */
 .overlay {
@@ -213,6 +214,25 @@ select.s-sel { background:#0d0d0d; border:1px solid #222; border-radius:4px; col
   align-items:center; justify-content:center; color:#7eb8ff; font-size:1.1rem; pointer-events:none;
 }
 #drop-over.on { display:flex; }
+
+/* ── Narrow / mobile viewports ───────────────────────────────────────────── *
+ * There were previously NO @media breakpoints anywhere in this stylesheet -
+ * #workspace is a fixed-height flex row with a hardcoded 210px-wide media
+ * bin, and both `body` and `#workspace` set `overflow:hidden`. On a phone-
+ * width viewport that means the bin alone eats most of the screen and the
+ * rest is silently clipped rather than reflowing - there's no scrollbar to
+ * even reveal it's cut off. This doesn't turn the editor into a proper
+ * mobile-first layout (out of proportion for a stdlib-http.server + vanilla
+ * JS personal tool), it just stops content from being clipped: below this
+ * width the media bin stacks above the preview instead of squeezing beside
+ * it, and the top bar can wrap instead of overflowing. */
+@media (max-width: 720px) {
+  #workspace { flex-direction: column; }
+  #bin { width:100%; height:130px; border-right:none; border-bottom:1px solid #1e1e1e; }
+  #top-bar { flex-wrap: wrap; row-gap:6px; }
+  #proj-name-wrap { max-width:none; min-width:140px; order:1; }
+  #top-title { order:0; }
+}
 </style>
 </head>
 <body>
@@ -319,8 +339,8 @@ select.s-sel { background:#0d0d0d; border:1px solid #222; border-radius:4px; col
     </select>
   </div>
   <div class="bot-sep"></div>
-  <button class="btn-exp" onclick="doProcess(false)">&#9654; Export</button>
-  <button class="btn-exp-up" onclick="doProcess(true)">&#9654;&#8593; Export &amp; Upload</button>
+  <button class="btn-exp" id="btn-export" onclick="doProcess(false)">&#9654; Export</button>
+  <button class="btn-exp-up" id="btn-export-up" onclick="doProcess(true)">&#9654;&#8593; Export &amp; Upload</button>
 </div>
 
 <!-- Upload overlay -->
@@ -429,7 +449,20 @@ function _applySnapshot(snap){
   tClips=snap;
   tCtr=tClips.reduce((m,c)=>Math.max(m,c.id+1),tCtr);
   previewClipIdx=Math.min(Math.max(previewClipIdx,tClips.length?0:-1),tClips.length-1);
-  if(!tClips.length){previewClipIdx=-1;vid.src='';vid.classList.remove('visible');document.getElementById('preview-placeholder').style.display='flex';}
+  if(!tClips.length){
+    previewClipIdx=-1;vid.src='';vid.classList.remove('visible');document.getElementById('preview-placeholder').style.display='flex';
+  }else{
+    // Previously undo/redo only redrew the timeline canvas - the actual
+    // <video> preview kept showing whatever frame happened to be loaded
+    // before the undo, even though the underlying clip/trim data just
+    // changed underneath it (e.g. undoing a delete brought a clip back,
+    // but its frame didn't reappear in the preview until the user
+    // manually clicked/seeked again). Re-seeking to the current playhead
+    // against the *new* tClips reloads whichever clip actually belongs
+    // there now, so the preview always matches what undo/redo just did.
+    playheadT=Math.max(0,Math.min(totalDur(),playheadT));
+    seekTo(playheadT);
+  }
   markDirty(); resizeTl(); _updateUndoUI();
 }
 function undo(){
@@ -652,14 +685,14 @@ function play(){
   document.getElementById('play-btn').innerHTML='&#9646;&#9646;';
   const {idx,srcT}=timeToClip(playheadT);
   if(idx<0){isPlaying=false;return;}
-  loadClip(idx,srcT,true);
+  loadClip(idx,srcT);
 }
 function pause(){
   isPlaying=false;
   document.getElementById('play-btn').innerHTML='&#9654;';
   vid.pause();
 }
-function loadClip(idx,srcT,autoplay){
+function loadClip(idx,srcT){
   const clip=tClips[idx]; if(!clip)return;
   previewClipIdx=idx;
   const url='/preview/'+clip.fileId;
@@ -667,7 +700,18 @@ function loadClip(idx,srcT,autoplay){
   vid.setAttribute('data-fid',clip.fileId);
   const doSeek=()=>{
     vid.currentTime=Math.max(clip.inPoint,Math.min(clip.outPoint-0.01,srcT));
-    if(autoplay)vid.play().catch(()=>{});
+    // Reads the LIVE isPlaying flag at the moment this actually runs,
+    // not a flag captured back when loadClip() was first called. For a
+    // clip that needs loading, doSeek only fires later, async, once
+    // 'loadedmetadata' arrives - previously this closed over a stale
+    // `autoplay` argument, so rapidly clicking Play then Pause before
+    // metadata finished loading meant pause() had already set
+    // isPlaying=false, yet doSeek would still unconditionally call
+    // vid.play() once it finally fired, resuming playback the user had
+    // just told it to stop. Confirmed by reading the loadedmetadata
+    // listener registration below: it's a plain {once:true} callback
+    // with no way to cancel it once pause() has been clicked.
+    if(isPlaying)vid.play().catch(()=>{});
   };
   if(needLoad){vid.src=url;vid.load();vid.addEventListener('loadedmetadata',doSeek,{once:true});}
   else doSeek();
@@ -678,7 +722,7 @@ function seekTo(t){
   if(!tClips.length)return;
   const {idx,srcT}=timeToClip(Math.max(0,Math.min(totalDur(),t)));
   if(idx<0)return;
-  loadClip(idx,srcT,isPlaying);
+  loadClip(idx,srcT);
 }
 function skipStart(){playheadT=0;seekTo(0);drawTl();}
 function skipEnd(){playheadT=totalDur();seekTo(playheadT);drawTl();}
@@ -729,7 +773,7 @@ function addToTimeline(f){
   tClips.push({id:tCtr++,fileId:f.fileId,name:f.name,dur:f.dur,hasAudio:f.hasAudio,inPoint:0,outPoint:f.dur});
   markDirty();
   document.getElementById('btn-add-more').style.display='';
-  if(tClips.length===1) loadClip(0,0,false);
+  if(tClips.length===1) loadClip(0,0);
   resizeTl();
 }
 
@@ -769,9 +813,38 @@ function onV(){document.getElementById('v-val').textContent=document.getElementB
 function toggleMute(){isMuted=!isMuted;const b=document.getElementById('mute-btn');b.classList.toggle('on',isMuted);b.textContent=isMuted?'Unmute':'Mute';}
 
 // ── Process ───────────────────────────────────────────────────────────────────
+let _jobInFlight=false;
+function _setExportButtonsEnabled(enabled){
+  document.getElementById('btn-export').disabled=!enabled;
+  document.getElementById('btn-export-up').disabled=!enabled;
+}
 function doProcess(autoUpload){
   if(!tClips.length){showErr('Add clips to the timeline first.');return;}
+  if(_jobInFlight){
+    // Previously nothing stopped a second (or fifth) click on Export
+    // while a job was already running - confirmed live that the server
+    // itself handles concurrent /process calls correctly (each gets its
+    // own job id and scratch file, no state corruption), but from the
+    // user's side that just means several ffmpeg encodes silently
+    // competing for CPU in the background while only the last one's
+    // progress/result dialog is ever seen - confusing and wasteful.
+    showErr('Already exporting - wait for it to finish first.');
+    return;
+  }
+  const targetMbRaw=document.getElementById('tmb').value;
+  const targetMb=targetMbRaw.trim()===''?null:parseFloat(targetMbRaw);
+  if(targetMb!==null&&(!Number.isFinite(targetMb)||targetMb<=0)){
+    // Previously a negative/garbage Size value sailed straight through to
+    // the server, which (before this audit's fix) silently clamped it to
+    // a degenerate ~50kbps floor and reported the export as a normal
+    // success - the user got a barely-watchable file with zero
+    // indication anything was wrong. Now caught client-side too, before
+    // ever hitting the network.
+    showErr('Target size (MB) must be a positive number.');
+    return;
+  }
   showErr('');
+  _jobInFlight=true; _setExportButtonsEnabled(false);
   document.getElementById('proc-overlay').classList.add('on');
   document.getElementById('proc-fg').style.width='0%';
   document.getElementById('proc-lbl').textContent='Starting FFmpeg...';
@@ -779,7 +852,7 @@ function doProcess(autoUpload){
     clips:tClips.map(c=>({fileId:c.fileId,segments:[{start:c.inPoint,end:c.outPoint}]})),
     settings:{
       quality:parseInt(document.getElementById('q-sl').value),
-      targetMb:parseFloat(document.getElementById('tmb').value)||null,
+      targetMb:targetMb,
       volume:parseInt(document.getElementById('v-sl').value),
       muted:isMuted,
       preset:document.getElementById('preset-sel').value,
@@ -787,7 +860,11 @@ function doProcess(autoUpload){
   };
   fetch('/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
     .then(r=>r.json()).then(d=>{if(d.error)throw new Error(d.error);listenJob(d.jobId,autoUpload);})
-    .catch(e=>{document.getElementById('proc-overlay').classList.remove('on');showErr(e.message);});
+    .catch(e=>{
+      document.getElementById('proc-overlay').classList.remove('on');
+      _jobInFlight=false; _setExportButtonsEnabled(true);
+      showErr(e.message);
+    });
 }
 function listenJob(jobId,autoUpload){
   const es=new EventSource('/progress/'+jobId);
@@ -796,10 +873,10 @@ function listenJob(jobId,autoUpload){
     const pct=Math.round((d.progress||0)*100);
     document.getElementById('proc-fg').style.width=pct+'%';
     document.getElementById('proc-lbl').textContent=d.status==='processing'?'Encoding... '+pct+'%':d.status==='done'?'Done!':'Error: '+d.error;
-    if(d.status==='done'){es.close();processedId=d.output_id;document.getElementById('proc-overlay').classList.remove('on');showResult(d,autoUpload);}
-    else if(d.status==='error'){es.close();document.getElementById('proc-overlay').classList.remove('on');showErr('FFmpeg: '+d.error);}
+    if(d.status==='done'){es.close();processedId=d.output_id;document.getElementById('proc-overlay').classList.remove('on');_jobInFlight=false;_setExportButtonsEnabled(true);showResult(d,autoUpload);}
+    else if(d.status==='error'){es.close();document.getElementById('proc-overlay').classList.remove('on');_jobInFlight=false;_setExportButtonsEnabled(true);showErr('FFmpeg: '+d.error);}
   };
-  es.onerror=()=>{es.close();document.getElementById('proc-overlay').classList.remove('on');showErr('Lost connection');};
+  es.onerror=()=>{es.close();document.getElementById('proc-overlay').classList.remove('on');_jobInFlight=false;_setExportButtonsEnabled(true);showErr('Lost connection');};
 }
 function showResult(job,autoUpload){
   const dlg=document.getElementById('result-dlg'); dlg.classList.add('on');
@@ -890,7 +967,7 @@ async function loadProjById(projectId){
     document.getElementById('tmb').value=s.targetMb||'';
     isMuted=!!s.muted; const mb=document.getElementById('mute-btn'); mb.classList.toggle('on',isMuted); mb.textContent=isMuted?'Unmute':'Mute';
     currentProjectId=data.projectId; document.getElementById('proj-name').value=data.name; clearDirty();
-    if(tClips.length){document.getElementById('btn-add-more').style.display='';loadClip(0,0,false);fitTl();}
+    if(tClips.length){document.getElementById('btn-add-more').style.display='';loadClip(0,0);fitTl();}
   }catch(e){showErr('Load failed: '+e.message);}
 }
 
@@ -913,10 +990,18 @@ document.addEventListener('click',e=>{
 
 // ── Keyboard ──────────────────────────────────────────────────────────────────
 document.addEventListener('keydown',e=>{
+  const inTextField=e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA';
   if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();saveProject();return;}
-  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'&&!e.shiftKey){e.preventDefault();undo();return;}
-  if((e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||(e.key.toLowerCase()==='z'&&e.shiftKey))){e.preventDefault();redo();return;}
-  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA')return;
+  // Ctrl+Z/Y used to be hijacked for the timeline undo/redo stack even
+  // while focus was in a text field (e.g. the project-name input) - a
+  // user fixing a typo with the browser's native text-undo got their
+  // *timeline* silently reverted instead, with preventDefault() blocking
+  // the native undo they actually wanted. Only take over Ctrl+Z/Y for the
+  // timeline when focus isn't in a text field; native text editing wins
+  // there, same as any other page.
+  if(!inTextField&&(e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'&&!e.shiftKey){e.preventDefault();undo();return;}
+  if(!inTextField&&(e.ctrlKey||e.metaKey)&&(e.key.toLowerCase()==='y'||(e.key.toLowerCase()==='z'&&e.shiftKey))){e.preventDefault();redo();return;}
+  if(inTextField)return;
   const k=e.key.toLowerCase();
   if(k===' '){e.preventDefault();togglePlay();}
   else if(k==='v')setTool('select');
